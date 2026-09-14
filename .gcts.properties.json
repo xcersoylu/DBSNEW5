@@ -1,0 +1,12 @@
+{
+  "name": "xcersoylu-dbsnew5",
+  "version": "1.0.0",
+  "description": "xcersoylu-DBSNEW5",
+  "repositoryLayout": {
+    "format": "json",
+    "formatVersion": "6",
+    "keepClient": "false",
+    "metaInformation": ".gctsmetadata/",
+    "tableContent": "true"
+  }
+}
