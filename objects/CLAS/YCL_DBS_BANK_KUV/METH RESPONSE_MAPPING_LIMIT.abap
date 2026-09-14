@@ -1,0 +1,98 @@
+  METHOD response_mapping_limit.
+    TYPES : BEGIN OF ty_limit,
+              availablelimit            TYPE string,
+              branchcode                TYPE string,
+              campaignname              TYPE string,
+              guarantedinvoiceamount    TYPE string,
+              isactive                  TYPE string,
+              limit                     TYPE string,
+              limitmaturitydate         TYPE string,
+              notguarantedinvoiceamount TYPE string,
+              notguarantedinvoicecount  TYPE string,
+              pendinginvoiceamount      TYPE string,
+              pendinginvoicecount       TYPE string,
+              purchasercode             TYPE string,
+              risk                      TYPE string,
+              taxnumber                 TYPE string,
+            END OF ty_limit,
+            tt_limit TYPE TABLE OF ty_limit WITH DEFAULT KEY,
+            BEGIN OF ty_result,
+              toplulimitliste TYPE tt_limit,
+            END OF ty_result,
+            BEGIN OF ty_json,
+              result_code    TYPE string,
+              result_message TYPE string,
+              result         TYPE ty_result,
+            END OF ty_json.
+    DATA ls_json TYPE ty_json.
+    /ui2/cl_json=>deserialize(
+      EXPORTING
+        json             = iv_response
+      CHANGING
+        data             = ls_json
+    ).
+    DATA(ls_time_info) = ycl_dbs_common=>get_local_time(  ).
+    IF ls_json-result_code = '000'.
+      DATA ls_limit TYPE ydbs_t_limit.
+      READ TABLE ls_json-result-toplulimitliste INTO DATA(ls_limit_info) INDEX 1.
+      ls_limit = VALUE #( companycode            = ms_service_info-companycode
+                          bankinternalid         = ms_service_info-bankinternalid
+                          customer               = ms_subscribe-customer
+                          currency               = ms_service_info-currency
+                          limit_timestamp        = ls_time_info-timestamp
+                          limit_date             = ls_time_info-date
+                          limit_time             = ls_time_info-time
+                          total_limit            = ls_limit_info-limit
+                          available_limit        = ls_limit_info-availablelimit
+                          risk                   = ls_limit_info-risk
+                          maturity_amount        = ls_limit_info-pendinginvoiceamount
+                          maturity_invoice_count = ls_limit_info-pendinginvoicecount
+                          over_limit             = ls_limit_info-notguarantedinvoiceamount ).
+      MODIFY ydbs_t_limit FROM @ls_limit.
+      APPEND VALUE #( id = mc_id type = mc_success number = 021 message_v1 = ms_subscribe-customer
+                                                                message_v2 = ms_service_info-companycode  ) TO rt_messages.
+*limit tarihçeli tutulsun denmişti sonradan son 2 güne düşürdük.
+      DATA lv_yesterday TYPE d.
+      lv_yesterday = ls_time_info-date - 1.
+      DELETE FROM ydbs_t_limit WHERE companycode    = @ms_service_info-companycode
+                                 AND bankinternalid = @ms_service_info-bankinternalid
+                                 AND customer       = @ms_subscribe-customer
+                                 AND currency       = @ms_service_info-currency
+                                 AND limit_date     < @lv_yesterday.
+    ELSEIF ls_json-result_code = '106'. "Bayi sisteme tanımlı değil
+      ls_limit = VALUE #( companycode            = ms_service_info-companycode
+                          bankinternalid         = ms_service_info-bankinternalid
+                          customer               = ms_subscribe-customer
+                          currency               = ms_service_info-currency
+                          limit_timestamp        = ls_time_info-timestamp
+                          limit_date             = ls_time_info-date
+                          limit_time             = ls_time_info-time
+                          total_limit            = 0
+                          available_limit        = 0
+                          risk                   = 0
+                          maturity_amount        = 0
+                          maturity_invoice_count = 0
+                          over_limit             = 0 ).
+      MODIFY ydbs_t_limit FROM @ls_limit.
+      adding_information_message(
+        EXPORTING
+          iv_message  = ls_json-result_message
+        CHANGING
+          ct_messages = rt_messages
+      ).
+*limit tarihçeli tutulsun denmişti sonradan son 2 güne düşürdük.
+      lv_yesterday = ls_time_info-date - 1.
+      DELETE FROM ydbs_t_limit WHERE companycode    = @ms_service_info-companycode
+                                 AND bankinternalid = @ms_service_info-bankinternalid
+                                 AND customer       = @ms_subscribe-customer
+                                 AND currency       = @ms_service_info-currency
+                                 AND limit_date     < @lv_yesterday.
+    ELSE.
+      adding_error_message(
+        EXPORTING
+          iv_message  = ls_json-result_message
+        CHANGING
+          ct_messages = rt_messages
+      ).
+    ENDIF.
+  ENDMETHOD.

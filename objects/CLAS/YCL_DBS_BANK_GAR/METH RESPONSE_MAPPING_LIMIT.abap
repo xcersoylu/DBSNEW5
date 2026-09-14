@@ -1,0 +1,49 @@
+  METHOD response_mapping_limit.
+    DATA ls_limit TYPE ydbs_t_limit.
+    DATA(ls_time_info) = ycl_dbs_common=>get_local_time(  ).
+    DATA(lt_xml) = ycl_dbs_common=>parse_xml( EXPORTING iv_xml_string  = iv_response ).
+    READ TABLE lt_xml INTO DATA(ls_bankstatus) WITH KEY node_type = mc_value_node name = 'StatusCode'.
+    IF ls_bankstatus-value = '0000' OR
+       ls_bankstatus-value = '0803' OR " 0803 bayi iptal edildi demekmiş bu durumda da limit alınsın istendi. bankadan 0 geliyor ve limit 0 lanıyor.
+       ls_bankstatus-value = '0802' OR "Bayi hesabı iptal ve bilgiler boş
+       ls_bankstatus-value = '0801' .  "Alıcı tanımsız
+      ls_limit = VALUE #( companycode    = ms_service_info-companycode
+                          bankinternalid = ms_service_info-bankinternalid
+                          customer       = ms_subscribe-customer
+                          currency       = ms_service_info-currency
+                          limit_timestamp = ls_time_info-timestamp
+                          limit_date      = ls_time_info-date
+                          limit_time      = ls_time_info-time
+                          total_limit     = VALUE #( lt_xml[ node_type = mc_value_node name = 'CreditLimit' ]-value OPTIONAL )
+                          available_limit =  ( VALUE #( lt_xml[ node_type = mc_value_node name = 'AvailableCreditLimit' ]-value OPTIONAL ) -
+                                            VALUE #( lt_xml[ node_type = mc_value_node name = 'StandingInvoiceAmount' ]-value OPTIONAL ) )
+                                            ).
+      MODIFY ydbs_t_limit FROM @ls_limit.
+      IF ls_bankstatus-value = '0000'.
+        APPEND VALUE #( id = mc_id type = mc_success number = 021 message_v1 = ms_subscribe-customer
+                                                                  message_v2 = ms_service_info-companycode  ) TO rt_messages.
+      ELSE.
+        adding_information_message(
+          EXPORTING
+            iv_message  = CONV #( get_error_text( CONV #( ls_bankstatus-value ) ) )
+          CHANGING
+            ct_messages = rt_messages
+        ).
+      ENDIF.
+*limit tarihçeli tutulsun denmişti sonradan son 2 güne düşürdük.
+      DATA lv_yesterday TYPE d.
+      lv_yesterday = ls_time_info-date - 1.
+      DELETE FROM ydbs_t_limit WHERE companycode    = @ms_service_info-companycode
+                                 AND bankinternalid = @ms_service_info-bankinternalid
+                                 AND customer       = @ms_subscribe-customer
+                                 AND currency       = @ms_service_info-currency
+                                 AND limit_date     < @lv_yesterday.
+    ELSE.
+      adding_error_message(
+        EXPORTING
+          iv_message  = CONV #( get_error_text( CONV #( ls_bankstatus-value ) ) )
+        CHANGING
+          ct_messages = rt_messages
+      ).
+    ENDIF.
+  ENDMETHOD.
